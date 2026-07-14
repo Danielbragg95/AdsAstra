@@ -1,0 +1,24 @@
+# Signalwork on a small VPS. For Postiz, run its OFFICIAL compose alongside
+# this (https://docs.postiz.com — env vars change between versions), then put
+# its URL + API key in .env here.
+services:
+  signalwork:
+    build: .
+    ports:
+      - "3000:3000"
+    env_file: .env
+    volumes:
+      - sw-data:/data
+    restart: unless-stopped
+
+  # trend sweep every 6h + nightly-ish metrics sync, same image
+  radar:
+    build: .
+    env_file: .env
+    volumes:
+      - sw-data:/data
+    command: sh -c "while true; do npm run radar; sleep 21600; done"
+    restart: unless-stopped
+
+volumes:
+  sw-data:

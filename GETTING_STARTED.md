@@ -65,15 +65,32 @@ Follow in order. Stop at the end of any part and you still have a working system
    response against `packages/engine/src/analytics/index.ts` field aliases
    (see README "Verify at home").
 
-## Part 5 — Keep it running
+## Part 5 — Always-on hosting (a $5 VPS beats your PC)
 
-- Trend sweeps on a schedule: `crontab -e` →
-  `0 */6 * * * cd /path/to/AdsAstra && npm run radar`
-- Nightly metrics: call `POST /api/sync` from cron with curl, or just hit
-  *Sync metrics* when you open Pulse.
-- Hosting options and tradeoffs: see README. Short version: any $5/mo VPS
-  outruns what this needs; the heavy lifting (Claude, ElevenLabs) happens on
-  their servers, not yours.
+The heavy lifting (Claude, ElevenLabs) happens on their servers — the app
+itself is light. A Hetzner/DigitalOcean box (~$5/mo) makes sweeps run 24/7
+and the dashboard reachable from your phone.
+
+1. Create the smallest Ubuntu VPS; install Docker (`curl -fsSL
+   https://get.docker.com | sh`).
+2. `git clone https://github.com/Danielbragg95/AdsAstra.git && cd AdsAstra`
+3. Create `.env` with your keys (Part 2-4), then:
+   ```bash
+   docker compose up -d --build
+   ```
+   That starts the dashboard on port 3000 plus a `radar` service that sweeps
+   every 6 hours into the shared volume. (The compose layer-sequence and both
+   service commands are audit-verified; the `docker build` itself is a
+   verify-at-home step since the build environment has no Docker daemon.)
+4. Postiz: run its official compose alongside
+   (https://docs.postiz.com) and point `POSTIZ_URL` at it.
+5. IMPORTANT — the dashboard has no login yet. Don't expose port 3000 to the
+   world: either keep the firewall closed and use Tailscale (free) to reach
+   it from your devices, or put HTTP basic-auth in front via Caddy/nginx.
+6. Metrics on a schedule (host crontab):
+   `15 6 * * * curl -s -X POST http://localhost:3000/api/sync`
+
+No Docker? Plain cron works too: `0 */6 * * * cd /path/to/AdsAstra && npm run radar`
 
 ## If something breaks
 
