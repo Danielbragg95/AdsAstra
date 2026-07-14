@@ -1,0 +1,23 @@
+{
+  "name": "signalwork",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Trend-to-published-content marketing engine",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "radar": "npm run radar -w @signalwork/engine",
+    "seed": "npm run seed -w @signalwork/engine",
+    "script": "npm run script -w @signalwork/engine",
+    "list": "npm run list -w @signalwork/engine",
+    "test": "npm run test -w @signalwork/engine",
+    "typecheck": "npm run typecheck -w @signalwork/engine && npm run typecheck -w web",
+    "dev": "npm run dev -w web",
+    "build": "npm run build -w web"
+  },
+  "engines": {
+    "node": ">=22.5"
+  }
+}
