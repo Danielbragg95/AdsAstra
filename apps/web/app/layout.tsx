@@ -28,6 +28,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               <nav className="masthead-nav">
                 <a href="/">Radar</a>
                 <a href="/queue">Queue</a>
+                <a href="/pulse">Pulse</a>
+                <a href="/ingest">Ingest</a>
                 <a href="/voices">Voices</a>
                 <a href="/brands">Brands</a>
               </nav>

@@ -213,6 +213,45 @@ function mockLlm(call: LlmCall): string {
     });
   }
 
+  if (call.system.includes("TRANSCRIPT ANALYST")) {
+    const src = JSON.parse(call.user) as { title: string; transcript: string };
+    const paras = src.transcript
+      .split(/\n\n+|(?<=[.!?])\s+(?=[A-Z])/)
+      .map((p) => p.trim())
+      .filter((p) => p.length > 60);
+    const n = Math.max(3, Math.min(5, Math.floor(paras.length / 2) || 3));
+    const step = Math.max(1, Math.floor(paras.length / n));
+    const beats = Array.from({ length: n }, (_, i) => {
+      const p = paras[Math.min(i * step, paras.length - 1)] ?? src.transcript.slice(0, 200);
+      return {
+        heading: shorten(p, 5),
+        vo_text: p.split(/(?<=[.!?])\s/).slice(0, 3).join(" ").slice(0, 400),
+        broll_suggestion: "supporting b-roll for: " + shorten(p, 8),
+      };
+    });
+    const title = src.title || shorten(paras[0] ?? "Transcript breakdown", 7);
+    return JSON.stringify({
+      title_options: [title, `${title} — the breakdown`, `What ${shorten(title, 4)} really says`],
+      hook: `This video makes one claim worth stealing — and buries it. Here's the clean version in ${n} beats.`,
+      beats,
+      cta: "Full source linked. Subscribe for one distilled breakdown like this a week.",
+      estimated_runtime_sec: n * 90,
+      shorts_cutdowns: [{ hook: "the buried claim:", vo_text: beats[0].vo_text.slice(0, 200) }],
+    });
+  }
+
+  if (call.system.includes("CALIBRATION WRITER")) {
+    const brandMatch = call.system.match(/BRAND: (.+)/);
+    const name = brandMatch ? brandMatch[1] : "this brand";
+    if (call.system.includes("[B]")) {
+      return `Here's the deal. ${name} exists for one reason: results you can count. No theory dumps. No hedging. We test, we measure, we ship what survives. Every post you'll see here earned its place with data. Stick around if you're done guessing.`;
+    }
+    if (call.system.includes("[C]")) {
+      return `Hey — welcome in. If you've ever felt like you're the only one who can't make this stuff click, you're exactly who ${name} is for. We figure it out together, one small win at a time, and we keep it honest about what's hard. Glad you're here.`;
+    }
+    return `${name} documents what actually works. We run the experiments, keep the receipts, and share the numbers — the wins and the faceplants. If you want a clear-eyed look at this space without the hype tax, you're in the right place.`;
+  }
+
   if (call.system.includes("VOICE EDITOR")) {
     // In mock mode we simulate the edit pass as a light rewrite marker:
     // real mode rewrites fully against the voice card.

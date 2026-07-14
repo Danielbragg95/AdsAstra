@@ -1,5 +1,6 @@
 import { openDb } from "@signalwork/engine";
 import { VoiceEditor } from "@/components/VoiceEditor";
+import { CalibratePanel } from "@/components/CalibratePanel";
 import { selectedBrandId } from "@/lib/brand";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +24,12 @@ export default async function VoicesPage() {
           <p>No brands yet. Run <code>npm run seed</code>.</p>
         </div>
       ) : (
-        brands.map((b) => <VoiceEditor key={b.id} brand={b} />)
+        brands.map((b) => (
+          <div key={b.id}>
+            <VoiceEditor brand={b} />
+            <CalibratePanel brandId={b.id} />
+          </div>
+        ))
       )}
     </main>
   );

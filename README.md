@@ -29,7 +29,7 @@ npm run radar        # run a radar sweep for all brands
 npm run list         # list briefs with heat scores
 npm run script [id]  # generate a script (default: hottest new brief)
 npm run test         # engine unit tests
-./scripts/audit-web.sh   # live end-to-end audit of the dashboard (48 checks)
+./scripts/audit-web.sh   # live end-to-end audit of the dashboard (69 checks)
 ```
 
 ## Going live
@@ -106,7 +106,43 @@ side, each fully isolated:
   integration for the target platform and, in live mode, refuses to schedule
   when a brand has no account mapped for that platform.
 
+## Phase 3: the loop closes
+
+- **Analytics loop** (`src/analytics/`): `Sync metrics` pulls per-post
+  performance (mock: deterministic; live: Postiz), the **Pulse** view ranks
+  everything by engagement with ember bars, and `performanceContext()` feeds
+  each brand's top/weakest results back into the trend agent's prompt — the
+  engine learns what works per brand.
+- **Transcript ingestion** (`/ingest`): paste any video transcript (yours or a
+  competitor's) → distilled beat sheet in the brand's voice → full Studio
+  pipeline (repurpose, assets, voiceover) with no new plumbing.
+- **Voice calibration** (Voices page): blind A/B/C — the same brand intro
+  rendered in three candidate voices, positions shuffled, descriptions hidden
+  until you pick; your pick becomes the brand voice. Repeatable.
+- **Voiceover** (`src/tts/`): per-segment audio from every script (hook, each
+  beat, CTA) with inline players in Studio. Mock provider writes real playable
+  WAVs; set `ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID` for cloned-voice MP3s.
+
+## Verify at home (built here, needs your keys/network)
+
+Two seams were contract-tested against fake servers but could not be exercised
+against the real services from the build environment:
+
+1. **ElevenLabs TTS**: request shape follows their published v1 API
+   (`POST /v1/text-to-speech/{voice_id}`, `xi-api-key` header) and is
+   contract-tested, but nobody has *heard* the output. Smoke-test with a real
+   key and judge the voice quality yourself.
+2. **Postiz analytics field names**: `fetchPostMetrics` reads
+   `analytics`/`insights` objects defensively with aliases
+   (views/impressions/reach…), but Postiz versions differ — check one real
+   response and adjust the aliases in `src/analytics/index.ts` if needed.
+   Scheduling itself uses the documented payload and needs no changes.
+
+Also: YouTube transcript auto-fetch is intentionally not implemented (paste
+transcripts into `/ingest`); scraper-based fetchers are a ToS gray zone and
+the paste path covers the workflow.
+
 ## Roadmap
 
-Phase 3: ElevenLabs TTS, transcript ingestion, analytics loop, calendar.
-Phase 4: multi-tenant packaging. See `docs-blueprint.md`.
+Phase 4: Remotion video assembly (needs headless Chrome — run it on your
+machine or a render service) and multi-tenant packaging. See `docs-blueprint.md`.

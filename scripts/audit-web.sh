@@ -198,6 +198,70 @@ NACT=$(curl -s "http://localhost:$PORT/api/brands" | node -e "let d='';process.s
 check "archived brand excluded from active list" 1 "$NACT"
 
 
+echo "== phase 3: analytics =="
+CODE=$(curl -s -o /tmp/sync.json -w "%{http_code}" -X POST "http://localhost:$PORT/api/sync" \
+  -H "Content-Type: application/json" -d '{}')
+check "POST /api/sync status" 200 "$CODE"
+NSYNC=$(node -e "const j=require('/tmp/sync.json');console.log(j.synced)")
+check "synced scheduled posts (>=2)" "yes" "$([ "$NSYNC" -ge 2 ] && echo yes || echo no)"
+curl -s "http://localhost:$PORT/pulse" > /tmp/pulse.html
+CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$PORT/pulse")
+check "GET /pulse status" 200 "$CODE"
+NPR=$(grep -o 'class="pulse-row"' /tmp/pulse.html | wc -l)
+check "pulse shows measured rows (>=2)" "yes" "$([ "$NPR" -ge 2 ] && echo yes || echo no)"
+NPR1=$(curl -s -H "Cookie: sw_brand=$BRAND" "http://localhost:$PORT/pulse" | grep -o 'class="pulse-row"' | wc -l)
+check "pulse scoped to brand 1 shows exactly 1" 1 "$NPR1"
+
+echo "== phase 3: transcript ingestion =="
+TRANSCRIPT="So today I want to talk about why most people quit learning guitar within three months. The number one reason is not talent, it is practice design. People sit down with no plan and noodle for an hour. The research on skill acquisition is really clear here. Short focused sessions beat long unfocused ones every single time. Fifteen minutes with a specific goal outperforms an hour of wandering. Second thing: song selection matters more than technique drills early on. If you pick songs you love that are slightly too hard, you stay motivated and your hands catch up. Third, recording yourself once a week changes everything. You hear progress you cannot feel day to day."
+CODE=$(curl -s -o /tmp/ing.json -w "%{http_code}" -X POST "http://localhost:$PORT/api/ingest" \
+  -H "Content-Type: application/json" \
+  -d "$(node -e "console.log(JSON.stringify({title:'Guitar quitting',transcript:process.argv[1]}))" "$TRANSCRIPT")")
+check "POST /api/ingest status" 200 "$CODE"
+ICID=$(node -e "const j=require('/tmp/ing.json');console.log(j.contentId)")
+CODE=$(curl -s -o /tmp/ingpage.html -w "%{http_code}" "http://localhost:$PORT/scripts/$ICID")
+check "ingested script page renders" 200 "$CODE"
+IB=$(grep -o 'beat-head' /tmp/ingpage.html | wc -l)
+check "ingested script has beats (>3 sections)" "yes" "$([ "$IB" -gt 3 ] && echo yes || echo no)"
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://localhost:$PORT/api/ingest" \
+  -H "Content-Type: application/json" -d '{"transcript":"too short"}')
+check "short transcript -> 400" 400 "$CODE"
+CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$PORT/ingest")
+check "GET /ingest page" 200 "$CODE"
+
+echo "== phase 3: calibration =="
+CODE=$(curl -s -o /tmp/cal.json -w "%{http_code}" -X POST "http://localhost:$PORT/api/calibrate" \
+  -H "Content-Type: application/json" -d "{\"brandId\":\"$BRAND\"}")
+check "POST /api/calibrate status" 200 "$CODE"
+NV=$(node -e "const j=require('/tmp/cal.json');console.log(j.variants.length)")
+check "3 variants returned" 3 "$NV"
+DISTINCT=$(node -e "const j=require('/tmp/cal.json');console.log(new Set(j.variants.map(v=>v.sample)).size)")
+check "variant samples distinct" 3 "$DISTINCT"
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PATCH "http://localhost:$PORT/api/brands" \
+  -H "Content-Type: application/json" \
+  -d "$(node -e "const j=require('/tmp/cal.json');console.log(JSON.stringify({brandId:process.argv[1],voice_profile:j.variants.find(v=>v.key==='B').profile}))" "$BRAND")")
+check "apply picked variant" 200 "$CODE"
+RHYTHM=$(curl -s "http://localhost:$PORT/api/brands" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);console.log(j.brands.find(b=>b.id==='$BRAND').voice_profile.sentence_rhythm.startsWith('Short. Punchy')?'yes':'no')})")
+check "variant B rhythm persisted" "yes" "$RHYTHM"
+
+echo "== phase 3: voiceover =="
+CODE=$(curl -s -o /tmp/vo.json -w "%{http_code}" -X POST "http://localhost:$PORT/api/voiceover" \
+  -H "Content-Type: application/json" -d "{\"scriptId\":\"$CID\"}")
+check "POST /api/voiceover status" 200 "$CODE"
+NSEG=$(node -e "const j=require('/tmp/vo.json');console.log(j.segments)")
+check "voiceover has segments (>=5)" "yes" "$([ "$NSEG" -ge 5 ] && echo yes || echo no)"
+PROV=$(node -e "const j=require('/tmp/vo.json');console.log(j.provider)")
+check "mock tts provider used" mock "$PROV"
+curl -s "http://localhost:$PORT/scripts/$CID" > /tmp/script3.html
+VOFILE=$(grep -o 'vo-[a-f0-9-]*\.wav' /tmp/script3.html | head -1)
+CTYPE=$(curl -s -o /tmp/vo.wav -w "%{content_type}" "http://localhost:$PORT/api/assets/$VOFILE")
+check "audio served as wav" "audio/wav" "$CTYPE"
+WMAGIC=$(head -c 4 /tmp/vo.wav)
+check "audio is real WAV" "RIFF" "$WMAGIC"
+NVO=$(curl -s "http://localhost:$PORT/scripts/$CID" | grep -o 'class="vo-row"' | wc -l)
+check "voiceover players render on script page (>=5)" "yes" "$([ "$NVO" -ge 5 ] && echo yes || echo no)"
+
+
 echo
 echo "RESULT: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

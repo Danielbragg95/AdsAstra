@@ -372,3 +372,201 @@ test("BrandInputSchema rejects junk and fills defaults", () => {
   });
   assert.deepEqual(ok.postiz_integrations, {});
 });
+
+// ---- phase 3: analytics ------------------------------------------------------
+import { syncPerformance, fetchPostMetrics, performanceContext } from "../src/analytics/index.ts";
+import { scheduleContent as sched3 } from "../src/publish/postiz.ts";
+
+test("mock analytics sync writes deterministic metrics and feeds prompt context", async () => {
+  const db = freshDb();
+  const brand = db.createBrand(demoBrandSeed);
+  const brief = db.getBrief(seedBrief(db, brand.id))!;
+  const { contentId } = await genScript2(db, brand, brief);
+  const [r] = await repurpose2(db, brand, db.getContent(contentId)!, ["x_thread"]);
+  approveContent(db, db.getContent(r.contentId)!);
+  await sched3(db, db.getContent(r.contentId)!, new Date(Date.now() + 1e6));
+
+  const s1 = await syncPerformance(db, brand.id);
+  assert.equal(s1.synced, 1);
+  const item = db.getContent(r.contentId)!;
+  assert.ok(item.performance!.impressions > 0);
+  assert.ok(item.performance!.engagement_rate >= 0);
+  assert.ok(item.performance_synced_at);
+
+  // deterministic: second sync yields identical metrics
+  const before = JSON.stringify(item.performance);
+  await syncPerformance(db, brand.id);
+  assert.equal(JSON.stringify(db.getContent(r.contentId)!.performance), before);
+
+  const ctx = performanceContext(db, brand.id);
+  assert.match(ctx, /PERFORMANCE CONTEXT/);
+  assert.match(ctx, /impressions/);
+  // and empty for a brand with no data
+  const b2 = db.createBrand({ ...demoBrandSeed, name: "Empty Brand" });
+  assert.equal(performanceContext(db, b2.id), "");
+  db.close();
+});
+
+test("live analytics: correct request, defensive parsing, soft failure", async () => {
+  let seenUrl = "", seenAuth = "";
+  const server = createServer((req, res) => {
+    seenUrl = req.url ?? ""; seenAuth = req.headers.authorization ?? "";
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ analytics: { views: 1200, reactions: 80, replies: 10, reposts: 5 } }));
+  });
+  await new Promise<void>((r) => server.listen(0, r));
+  const port = (server.address() as any).port;
+
+  const res = await fetchPostMetrics("pz_77", { url: `http://localhost:${port}`, apiKey: "k2" });
+  server.close();
+  assert.ok(res.ok);
+  assert.equal(seenUrl, "/api/posts/pz_77");
+  assert.equal(seenAuth, "Bearer k2");
+  assert.equal(res.metrics!.impressions, 1200); // views alias
+  assert.equal(res.metrics!.likes, 80);         // reactions alias
+  assert.ok(Math.abs(res.metrics!.engagement_rate - 95 / 1200) < 1e-4); // 4dp rounding
+
+  const dead = await fetchPostMetrics("x", { url: "http://localhost:1", apiKey: "k" });
+  assert.equal(dead.ok, false); // soft failure, no throw
+});
+
+// ---- phase 3: transcript ingestion -----------------------------------------
+import { ingestTranscript } from "../src/agents/ingestAgent.ts";
+
+const SAMPLE_TRANSCRIPT = `So today I want to talk about why most people quit learning guitar within three months. The number one reason is not talent, it is practice design. People sit down with no plan and noodle for an hour.
+
+The research on skill acquisition is really clear here. Short focused sessions beat long unfocused ones every single time. Fifteen minutes with a specific goal outperforms an hour of wandering.
+
+Second thing: song selection matters more than technique drills early on. If you pick songs you love that are slightly too hard, you stay motivated and your hands catch up.
+
+Third, recording yourself once a week changes everything. You hear progress you cannot feel day to day, and that feedback loop is what keeps adults going when life gets busy.
+
+So the playbook is simple: fifteen minute sessions, songs you love, weekly recordings. That is the entire system my students use.`;
+
+test("transcript ingestion produces a valid, repurposable script", async () => {
+  const db = freshDb();
+  const brand = db.createBrand(demoBrandSeed);
+  const { contentId, script } = await ingestTranscript(db, brand, {
+    title: "Why adults quit guitar",
+    transcript: SAMPLE_TRANSCRIPT,
+  });
+  assert.ok(script.beats.length >= 3);
+  assert.ok(script.hook.length > 20);
+  const row = db.getContent(contentId)!;
+  assert.equal(row.kind, "script");
+
+  // the ingested script flows into the existing repurpose pipeline
+  const results = await repurpose2(db, brand, row, ["x_thread", "li_post"]);
+  assert.ok(results.every((r) => r.ok));
+  db.close();
+});
+
+test("ingestion rejects too-short and too-long transcripts", async () => {
+  const db = freshDb();
+  const brand = db.createBrand(demoBrandSeed);
+  await assert.rejects(ingestTranscript(db, brand, { transcript: "too short" }), /too short/);
+  await assert.rejects(
+    ingestTranscript(db, brand, { transcript: "x".repeat(130_000) }),
+    /too long/,
+  );
+  db.close();
+});
+
+// ---- phase 3: calibration ----------------------------------------------------
+import { calibrationVariants, applyCalibration } from "../src/voice/calibration.ts";
+
+test("calibration renders 3 distinct variants and applying one persists", async () => {
+  const db = freshDb();
+  const brand = db.createBrand(demoBrandSeed);
+  const variants = await calibrationVariants(brand);
+  assert.equal(variants.length, 3);
+  assert.deepEqual(variants.map((v) => v.key), ["A", "B", "C"]);
+  const texts = new Set(variants.map((v) => v.sample));
+  assert.equal(texts.size, 3, "samples must be distinguishable");
+  for (const v of variants) assert.ok(v.sample.length > 40);
+
+  // B shifts boldness up but stays clamped to [0,1]
+  const b = variants.find((v) => v.key === "B")!;
+  assert.ok(b.profile.tone_axes.bold_measured! > brand.voice_profile.tone_axes.bold_measured!);
+  assert.ok(b.profile.tone_axes.bold_measured! <= 1);
+
+  applyCalibration(db, brand, b.profile);
+  assert.equal(
+    db.getBrand(brand.id)!.voice_profile.sentence_rhythm,
+    b.profile.sentence_rhythm,
+  );
+  // junk profile rejected
+  assert.throws(() => applyCalibration(db, brand, { identity: 5 }));
+  db.close();
+});
+
+// ---- phase 3: tts -------------------------------------------------------------
+import { synthesizeScript, prepareForSpeech } from "../src/tts/index.ts";
+
+test("mock tts produces playable WAVs per segment with sane durations", async () => {
+  const db = freshDb();
+  const brand = db.createBrand(demoBrandSeed);
+  const brief = db.getBrief(seedBrief(db, brand.id))!;
+  const { contentId } = await genScript2(db, brand, brief);
+  const scriptItem = db.getContent(contentId)!;
+  const nBeats = (scriptItem.body as any).beats.length;
+
+  const { contentId: voId, result } = await synthesizeScript(db, brand, scriptItem);
+  assert.ok(result.ok, result.error);
+  assert.equal(result.provider, "mock");
+  assert.equal(result.segments.length, nBeats + 2); // hook + beats + cta
+
+  for (const seg of result.segments) {
+    const buf = readFileSync(join(process.env.SIGNALWORK_ASSETS!, seg.file));
+    assert.equal(buf.subarray(0, 4).toString(), "RIFF");
+    assert.equal(buf.subarray(8, 12).toString(), "WAVE");
+    const words = seg.text.split(/\s+/).length;
+    assert.ok(Math.abs(seg.seconds - Math.min(60, Math.max(1, words / 2.5))) < 0.2);
+  }
+  const row = db.getContent(voId)!;
+  assert.equal(row.kind, "voiceover");
+  assert.equal(row.parent_id, contentId);
+  assert.ok((row.body as any).total_seconds > 0);
+  db.close();
+});
+
+test("elevenlabs provider sends correct request shape (contract vs fake server)", async () => {
+  let captured: any = null, headers: any = null, url = "";
+  const server = createServer((req, res) => {
+    url = req.url ?? ""; headers = req.headers;
+    let body = ""; req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      captured = JSON.parse(body);
+      res.writeHead(200, { "Content-Type": "audio/mpeg" });
+      res.end(Buffer.from("ID3fakeaudio"));
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, r));
+  const port = (server.address() as any).port;
+
+  const db = freshDb();
+  const brand = db.createBrand(demoBrandSeed);
+  const brief = db.getBrief(seedBrief(db, brand.id))!;
+  const { contentId } = await genScript2(db, brand, brief);
+
+  process.env.ELEVENLABS_API_KEY = "el_key";
+  process.env.ELEVENLABS_VOICE_ID = "voice123";
+  process.env.ELEVENLABS_BASE_URL = `http://localhost:${port}`;
+  const { result } = await synthesizeScript(db, brand, db.getContent(contentId)!);
+  delete process.env.ELEVENLABS_API_KEY;
+  delete process.env.ELEVENLABS_VOICE_ID;
+  delete process.env.ELEVENLABS_BASE_URL;
+  server.close();
+
+  assert.ok(result.ok, result.error);
+  assert.equal(result.provider, "elevenlabs");
+  assert.equal(url, "/v1/text-to-speech/voice123");
+  assert.equal(headers["xi-api-key"], "el_key");
+  assert.ok(captured.text.length > 0);
+  assert.ok(captured.model_id);
+  assert.ok(result.segments.every((s) => s.file.endsWith(".mp3")));
+});
+
+test("prepareForSpeech strips markdown and normalizes pauses", () => {
+  assert.equal(prepareForSpeech("**Bold** _move_ — here\n\nnow"), "Bold move… here now");
+});

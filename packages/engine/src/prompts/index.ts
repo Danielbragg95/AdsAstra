@@ -1,12 +1,12 @@
 import type { BrandRow, Brief, VoiceProfile } from "../types.ts";
 import type { TopicCluster } from "../types.ts";
 
-export function briefWriterSystem(brand: BrandRow): string {
+export function briefWriterSystem(brand: BrandRow, perfContext = ""): string {
   return `You are a TREND ANALYST for a content brand.
 
 BRAND: ${brand.name}
 POSITIONING: ${brand.positioning}
-
+${perfContext ? "\n" + perfContext + "\n" : ""}
 You receive topic clusters with heat statistics gathered from social platforms.
 For the strongest clusters (max 6), write trend briefs SPECIFIC to this brand.
 

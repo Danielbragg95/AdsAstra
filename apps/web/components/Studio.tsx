@@ -58,8 +58,11 @@ export function Studio({
     }
   }
 
-  const posts = initialPosts.filter((p) => p.kind !== "carousel" && p.kind !== "cover");
+  const posts = initialPosts.filter(
+    (p) => !["carousel", "cover", "voiceover"].includes(p.kind),
+  );
   const assets = initialPosts.filter((p) => p.kind === "carousel" || p.kind === "cover");
+  const voiceovers = initialPosts.filter((p) => p.kind === "voiceover");
 
   return (
     <section className="studio">
@@ -86,6 +89,13 @@ export function Studio({
             onClick={() => call("/api/generate-assets", { scriptId, mode: "cover" }, "cover")}
           >
             {busy === "cover" ? "Rendering…" : "Generate cover"}
+          </button>
+          <button
+            className="act quiet"
+            disabled={busy !== null}
+            onClick={() => call("/api/voiceover", { scriptId }, "vo")}
+          >
+            {busy === "vo" ? "Synthesizing…" : "Generate voiceover"}
           </button>
         </div>
         {error && <p className="studio-error">{error}</p>}
@@ -135,6 +145,22 @@ export function Studio({
           ))}
         </div>
       )}
+
+      {voiceovers.map((v) => (
+        <div className="asset-strip" key={v.id}>
+          <div className="post-card-head">
+            <span className="tag">Voiceover · {(v.body as any).provider}</span>
+            <span className="tag">~{(v.body as any).total_seconds}s total</span>
+          </div>
+          {((v.body as any).segments as any[]).map((seg) => (
+            <div className="vo-row" key={seg.file}>
+              <span className="vo-label">{seg.label}</span>
+              <audio controls preload="none" src={`/api/assets/${seg.file}`} />
+              <span className="sched-note">{seg.seconds}s</span>
+            </div>
+          ))}
+        </div>
+      ))}
 
       {assets.map((a) => (
         <div className="asset-strip" key={a.id}>

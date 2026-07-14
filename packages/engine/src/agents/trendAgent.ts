@@ -4,6 +4,7 @@ import { clusterTopics } from "../scoring/cluster.ts";
 import { scoreClusters, platformHeat } from "../scoring/heat.ts";
 import { llm, extractJson } from "../llm/client.ts";
 import { briefWriterSystem, briefWriterUser } from "../prompts/index.ts";
+import { performanceContext } from "../analytics/index.ts";
 import { BriefListSchema, type BrandRow, type Signal } from "../types.ts";
 import type { EngineDb } from "../db/index.ts";
 
@@ -33,7 +34,7 @@ export async function runTrendRadar(db: EngineDb, brand: BrandRow): Promise<Rada
   }
 
   const reply = await llm({
-    system: briefWriterSystem(brand),
+    system: briefWriterSystem(brand, performanceContext(db, brand.id)),
     user: briefWriterUser(top),
   });
   const { briefs } = BriefListSchema.parse(extractJson(reply));

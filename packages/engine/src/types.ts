@@ -127,6 +127,8 @@ export interface ContentItemRow {
   status: "draft" | "approved" | "scheduled" | "published";
   scheduled_for: string | null;
   postiz_post_id: string | null;
+  performance: Record<string, number> | null;
+  performance_synced_at: string | null;
   created_at: string;
 }
 

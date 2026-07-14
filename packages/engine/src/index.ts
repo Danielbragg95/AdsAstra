@@ -12,3 +12,7 @@ export { repurposeScript, renderPostBody } from "./agents/repurposeAgent.ts";
 export { renderTemplate, renderCarousel, assetDir, SIZES, TEMPLATES, CarouselSchema } from "./assets/render.ts";
 export { generateCarouselAssets, generateCoverAsset } from "./agents/assetAgent.ts";
 export { postizSchedule, scheduleContent, approveContent, isPostizLive, postizConfig } from "./publish/postiz.ts";
+export { syncPerformance, fetchPostMetrics, performanceContext, type Metrics } from "./analytics/index.ts";
+export { ingestTranscript } from "./agents/ingestAgent.ts";
+export { calibrationVariants, applyCalibration, type CalibrationVariant } from "./voice/calibration.ts";
+export { synthesizeScript, ttsProvider, prepareForSpeech, type TtsResult, type TtsSegment } from "./tts/index.ts";

@@ -199,6 +199,12 @@ export function openDb(path = dbPath()) {
       ).run(status, extra.scheduledFor ?? null, extra.postizPostId ?? null, id);
     },
 
+    setContentPerformance(id: string, metrics: Record<string, number>): void {
+      db.prepare(
+        `update content_items set performance = ?, performance_synced_at = datetime('now') where id = ?`,
+      ).run(JSON.stringify(metrics), id);
+    },
+
     updateBrandVoice(brandId: string, voice: VoiceProfile): void {
       db.prepare(`update brands set voice_profile = ? where id = ?`).run(
         JSON.stringify(voice),
@@ -209,7 +215,11 @@ export function openDb(path = dbPath()) {
     getContent(id: string): ContentItemRow | null {
       const row = db.prepare(`select * from content_items where id = ?`).get(id) as any;
       if (!row) return null;
-      return { ...row, body: JSON.parse(row.body) };
+      return {
+        ...row,
+        body: JSON.parse(row.body),
+        performance: row.performance ? JSON.parse(row.performance) : null,
+      };
     },
 
     listContent(filter: { briefId?: string; parentId?: string; kind?: string; brandId?: string } = {}): ContentItemRow[] {
@@ -224,7 +234,11 @@ export function openDb(path = dbPath()) {
         (where.length ? ` where ${where.join(" and ")}` : "") +
         ` order by created_at desc`;
       const rows = db.prepare(sql).all(...args) as any[];
-      return rows.map((r) => ({ ...r, body: JSON.parse(r.body) }));
+      return rows.map((r) => ({
+        ...r,
+        body: JSON.parse(r.body),
+        performance: r.performance ? JSON.parse(r.performance) : null,
+      }));
     },
 
     close() {
@@ -244,6 +258,8 @@ function migrate(db: DatabaseSync) {
   add("parent_id", "parent_id text");            // posts link to their source script
   add("scheduled_for", "scheduled_for text");
   add("postiz_post_id", "postiz_post_id text");
+  add("performance", "performance text");        // json metrics from analytics sync
+  add("performance_synced_at", "performance_synced_at text");
 
   const brandCols = new Set(
     (db.prepare(`pragma table_info(brands)`).all() as any[]).map((c) => c.name),
