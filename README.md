@@ -10,6 +10,8 @@ Runs fully **offline in mock mode** out of the box (fixture signals +
 deterministic mock LLM), and switches to **live mode** the moment you add API
 keys. No accounts required to try it.
 
+**New machine? Follow [GETTING_STARTED.md](GETTING_STARTED.md) — zero to live publishing in 5 parts.**
+
 ## Quickstart
 
 Requires Node >= 22.5 (uses the built-in `node:sqlite` — zero native deps).
